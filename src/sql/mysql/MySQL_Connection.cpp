@@ -34,8 +34,11 @@
 		type = PLUGIN_SUPPORTS_MYSQL;
 		mutex = new Mutex();
 		conn = mysql_init(NULL);
-		my_bool reconnect = true;
+		/* Connector/C: my_bool is char. C++ true is 4-byte bool — do not pass it. */
+		my_bool reconnect = (my_bool)1;
+#ifdef MYSQL_OPT_RECONNECT
 		mysql_options(conn, MYSQL_OPT_RECONNECT, &reconnect);
+#endif
 	}
 
 	MySQL_Connection::~MySQL_Connection() {

@@ -31,7 +31,7 @@
 	#include <Windows.h>
 	#define SLEEP(x) Sleep(x);
 #else
-	#include "pthread.h"
+	#include <pthread.h>
 	#include <unistd.h>
 	#define SLEEP(x) usleep(x * 1000);
 	typedef unsigned long DWORD;

@@ -1,35 +1,11 @@
 # Copyright (c) 2013-2014, Dan
-# All rights reserved.
+# ELF64 / MariaDB Connector/C overlay for open.mp (Republic Online).
+# Original 32-bit makefile: makefile.m32
 #
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the following conditions are met: 
+#   make                 # linux x86_64 sql.so, MySQL via libmariadb
+#   make ARCH=m32        # original i686 + bundled libmysql (not used on omp x64)
 #
-# 1. Redistributions of source code must retain the above copyright notice, this
-#    list of conditions and the following disclaimer. 
-# 2. Redistributions in binary form must reproduce the above copyright notice,
-#    this list of conditions and the following disclaimer in the documentation
-#    and/or other materials provided with the distribution. 
-#
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
-# ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-# WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
-# ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-# (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-# LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
-# ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-# SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
-#
-# make <flags>
-#   e.g. make MYSQL=true
-#
-# Flag list:
-#   MYSQL  - adds support for MySQL 
-#   PGSQL  - adds support for PostgreSQL
-#   STATIC - links statically MySQL library (only!)
-#
+# Output: bin/sql.so
 
 ifndef CC
 	CC = gcc
@@ -39,53 +15,61 @@ ifndef GXX
 	GXX = g++
 endif
 
-# Compilation flags.
-COMPILE_FLAGS = -c -fPIC -m32 -O3 -w -Wall -Iinclude/ -Isrc/sdk/amx/ -DLINUX
-LIBRARIES = -lpthread -lrt
+ARCH ?= x64
+OUTDIR = bin
+OUTFILE = $(OUTDIR)/sql.so
 
-# Output file name.
-OUTFILE = bin/sql.so
+ifeq ($(ARCH),m32)
+	include makefile.m32
+else
 
-# 1: MySQL support is enabled.
-ifneq ($(MYSQL),)
-	COMPILE_FLAGS += -DPLUGIN_SUPPORTS_MYSQL=1
-	ifneq ($(STATIC),)
-		LIBRARIES += -ldl ./lib/mysql/libmysql.a
-		OUTFILE := bin/mysql_static.so
-	else
-		LIBRARIES += ./lib/mysql/libmysql.so
-		OUTFILE := bin/mysql.so
+MARIADB_CONFIG ?= $(shell command -v mariadb_config 2>/dev/null)
+ifneq ($(MARIADB_CONFIG),)
+	MARIADB_CFLAGS := $(shell $(MARIADB_CONFIG) --include)
+	MARIADB_LIBS := $(shell $(MARIADB_CONFIG) --libs)
+else
+	MARIADB_CFLAGS := $(shell pkg-config --cflags libmariadb 2>/dev/null || pkg-config --cflags mariadb 2>/dev/null)
+	MARIADB_LIBS := $(shell pkg-config --libs libmariadb 2>/dev/null || pkg-config --libs mariadb 2>/dev/null)
+	ifeq ($(MARIADB_LIBS),)
+		MARIADB_LIBS := -lmariadb
 	endif
 endif
 
-# 2: PostgreSQL support is enabled.
-ifneq ($(PGSQL),)
-	COMPILE_FLAGS += -DPLUGIN_SUPPORTS_PGSQL=2
-	# There is no way to link statically `libpq`.
-	LIBRARIES += ./lib/pgsql/libpq.so
-	OUTFILE := bin/pgsql.so
-endif
+COMPILE_FLAGS = -c -fPIC -O2 -Wall -pthread -std=gnu++11 \
+	-Iinclude/ -Isrc/ -Isrc/sdk/ -Isrc/sdk/amx/ \
+	$(MARIADB_CFLAGS) \
+	-DLINUX -DHAVE_STDINT_H -DPLUGIN_SUPPORTS_MYSQL=1 \
+	-DHAVE_DLOPEN=1
 
-# Both MySQL and PostgreSQL support is enabled.
-ifneq ($(MYSQL),)
-	ifneq ($(PGSQL),)
-		ifneq ($(STATIC),)
-			OUTFILE := bin/sql_static.so
-		else
-			OUTFILE := bin/sql.so
-		endif
-	endif
-endif
+LIBRARIES = -lpthread -lrt -ldl -latomic $(MARIADB_LIBS)
 
-# Compiling!
-all:
-	mkdir -p bin
-	$(GXX) $(COMPILE_FLAGS) src/sdk/*.cpp
-	$(GXX) $(COMPILE_FLAGS) src/sql/*.cpp
-	$(GXX) $(COMPILE_FLAGS) src/sql/mysql/*.cpp
-	$(GXX) $(COMPILE_FLAGS) src/sql/pgsql/*.cpp
-	$(GXX) $(COMPILE_FLAGS) src/*.cpp
-	$(GXX) -m32 -shared -o $(OUTFILE) *.o $(LIBRARIES)
-	
+SOURCES = \
+	src/sdk/amxplugin.cpp \
+	src/sdk/amxplugin2.cpp \
+	src/sql/SQL_Connection.cpp \
+	src/sql/SQL_Pools.cpp \
+	src/sql/SQL_ResultSet.cpp \
+	src/sql/SQL_Statement.cpp \
+	src/sql/mysql/MySQL_Connection.cpp \
+	src/sql/mysql/MySQL_ResultSet.cpp \
+	src/sql/mysql/MySQL_Statement.cpp \
+	src/Logger.cpp \
+	src/Mutex.cpp \
+	src/Natives.cpp \
+	src/main.cpp
+
+OBJECTS = $(notdir $(SOURCES:.cpp=.o))
+
+all: $(OUTFILE)
+
+$(OUTFILE): $(SOURCES)
+	mkdir -p $(OUTDIR)
+	$(GXX) $(COMPILE_FLAGS) $(SOURCES)
+	$(GXX) -shared -fPIC -pthread -Wl,-rpath,'$$ORIGIN' -o $(OUTFILE) $(OBJECTS) $(LIBRARIES)
+	rm -f $(OBJECTS)
+	@echo "built $(OUTFILE)"
+
 clean:
-	rm -f *.o
+	rm -f *.o $(OUTFILE)
+
+endif

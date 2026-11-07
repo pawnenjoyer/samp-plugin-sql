@@ -35,7 +35,7 @@
 		#include <Windows.h>
 	#endif	
 
-	#include <mysql/mysql.h>
+	#include <mysql.h>
 
 	#define MYSQL_DEFAULT_PORT			3306
 	
